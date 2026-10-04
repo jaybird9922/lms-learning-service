@@ -1,0 +1,23 @@
+# DEV profile for learning-service, served by the config service.
+# Mirrors the local fallback block in learning-service's application.yml.
+
+lms:
+  environment-label: "DEV - served by config-service (Flyway builds the schema + seed data, SQL logging on)"
+  auth:
+    # Dev convenience: with no X-User / X-Role headers the caller is admin1.
+    default-username: admin1
+    default-role: admin
+
+spring:
+  flyway:
+    # V1 schema + V2 seed data
+    locations: classpath:db/migration,classpath:db/dev
+  jpa:
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it
+      ddl-auto: validate
+    show-sql: true
+
+logging:
+  level:
+    edu.lms: DEBUG

@@ -1,0 +1,1508 @@
+{
+  "info": {
+    "name": "LMS - learning-service (Phase 1)",
+    "description": "Tests for learning-service (port 8105): the four endpoints from service.html, role scoping, the admin /courses CRUD cycle, and the 400/401/403/404/409 cases.\n\nRun the whole collection in order: request 15 stores the id of the next class and request 22 undoes the change, so it is safe to re-run.\n\nRoles are sent as X-User / X-Role headers (stand-in for Keycloak). Run headless: newman run SchramlJay_Phase1_Postman.json -r cli,htmlextra",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8105"
+    },
+    {
+      "key": "courseId",
+      "value": "ap-precalc"
+    },
+    {
+      "key": "student",
+      "value": "student1"
+    },
+    {
+      "key": "teacher",
+      "value": "janderson"
+    },
+    {
+      "key": "otherTeacher",
+      "value": "ppatel"
+    },
+    {
+      "key": "admin",
+      "value": "admin1"
+    },
+    {
+      "key": "crudId",
+      "value": "ap-demo-course"
+    },
+    {
+      "key": "itemId",
+      "value": ""
+    },
+    {
+      "key": "percentBefore",
+      "value": ""
+    },
+    {
+      "key": "completedBefore",
+      "value": ""
+    },
+    {
+      "key": "studentCourseCount",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('service is up', () => pm.response.to.have.status(200));",
+              "pm.test('status is UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Config service reachable",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/whoami",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "whoami"
+          ]
+        },
+        "description": "Returns the environment label. If it mentions config-service, the config server is genuinely being read (not the local fallback)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const label = pm.response.text();",
+              "console.log('Environment: ' + label);",
+              "pm.test('label served by config-service', () => pm.expect(label).to.include('config-service'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. No identity headers (dev: 200 as admin1, prod: 401)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/classes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "classes"
+          ]
+        },
+        "description": "Dev has a default caller (admin1); prod does not. Either result is correct for its profile."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('dev answers 200, prod answers 401', () => pm.expect(pm.response.code).to.be.oneOf([200, 401]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Invalid role header -> 400",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "principal"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "overview"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 400', () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Overview - student",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "overview"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('role is student', () => pm.expect(b.role).to.eql('student'));",
+              "pm.test('term is present', () => pm.expect(b.term.name).to.be.a('string'));",
+              "pm.test('4 tiles', () => pm.expect(b.stats).to.have.lengthOf(4));",
+              "pm.test('tile labels', () => pm.expect(b.stats.map(s => s.label)).to.eql(['Enrolled Classes', 'Classes Completed', 'Next Class', 'Study Hours']));",
+              "pm.test('completed tile carries progress', () => pm.expect(b.stats[1].progress).to.be.a('number'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Overview - teacher",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "overview"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('role is teacher', () => pm.expect(b.role).to.eql('teacher'));",
+              "pm.test('tile labels', () => pm.expect(b.stats.map(s => s.label)).to.eql(['Courses Taught', 'Classes This Term', 'Classes Completed', 'Next Class']));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Overview - admin",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "overview"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('role is admin', () => pm.expect(b.role).to.eql('admin'));",
+              "pm.test('tile labels', () => pm.expect(b.stats.map(s => s.label)).to.eql(['Courses', 'Classes This Term', 'Classes Completed', 'Study Hours']));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Classes - student (enrolled only)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/classes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "classes"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json();",
+              "pm.test('returns an array', () => pm.expect(rows).to.be.an('array'));",
+              "pm.test('includes the sample course', () => pm.expect(rows.map(r => r.id)).to.include(pm.collectionVariables.get('courseId')));",
+              "pm.test('student can never mark', () => pm.expect(rows.every(r => r.canMark === false)).to.be.true);",
+              "pm.test('counts add up', () => pm.expect(rows.every(r => r.classes === r.classesCompleted + r.classesRemaining)).to.be.true);",
+              "pm.collectionVariables.set('studentCourseCount', rows.length);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Classes - teacher (own courses only)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/classes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "classes"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json();",
+              "pm.test('only own courses', () => pm.expect(rows.every(r => r.teacherUsername === pm.collectionVariables.get('teacher'))).to.be.true);",
+              "pm.test('teacher can mark own courses', () => pm.expect(rows.every(r => r.canMark === true)).to.be.true);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Classes - admin (all courses)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/classes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "classes"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json();",
+              "pm.test('admin sees at least what a student sees', () => pm.expect(rows.length).to.be.at.least(Number(pm.collectionVariables.get('studentCourseCount'))));",
+              "pm.test('admin can mark', () => pm.expect(rows.every(r => r.canMark === true)).to.be.true);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Plan - student, enrolled course",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/{{courseId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "{{courseId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('is the requested course', () => pm.expect(b.id).to.eql(pm.collectionVariables.get('courseId')));",
+              "pm.test('items match the class count', () => pm.expect(b.items).to.have.lengthOf(b.classes));",
+              "pm.test('items are in class order', () => pm.expect(b.items.map(i => i.classNumber)).to.eql(b.items.map((_, n) => n + 1)));",
+              "pm.test('term is included', () => pm.expect(b.term.start).to.be.a('string'));",
+              "pm.test('student cannot mark', () => pm.expect(b.canMark).to.be.false);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Plan - student, course not enrolled -> 403",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/ap-calc-ab",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "ap-calc-ab"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13. Plan - unknown course -> 404",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/no-such-course",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "no-such-course"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Plan - other teacher's course -> 403",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{otherTeacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/{{courseId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "{{courseId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Plan - teacher (remember next class and percent)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/{{courseId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "{{courseId}}"
+          ]
+        },
+        "description": "Stores the id of the next uncompleted class so the PUT requests below have something to mark."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('teacher can mark', () => pm.expect(b.canMark).to.be.true);",
+              "pm.test('course has a next class to mark', () => pm.expect(b.nextClass).to.not.be.null);",
+              "pm.collectionVariables.set('itemId', b.nextClass.id);",
+              "pm.collectionVariables.set('percentBefore', b.percent);",
+              "pm.collectionVariables.set('completedBefore', b.classesCompleted);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Mark class complete - teacher",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/{{itemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "{{itemId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completed\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('item is completed', () => pm.expect(b.item.completed).to.be.true);",
+              "pm.test('records who marked it', () => pm.expect(b.item.completedBy).to.eql(pm.collectionVariables.get('teacher')));",
+              "pm.test('records when', () => pm.expect(b.item.completedAt).to.be.a('string'));",
+              "pm.test('one more class done', () => pm.expect(b.completed).to.eql(Number(pm.collectionVariables.get('completedBefore')) + 1));",
+              "pm.test('percent went up', () => pm.expect(b.coursePercent).to.be.above(Number(pm.collectionVariables.get('percentBefore'))));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Student sees the change",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/{{courseId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "{{courseId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "const it = b.items.find(i => i.id === Number(pm.collectionVariables.get('itemId')));",
+              "pm.test('class shows as completed', () => pm.expect(it.completed).to.be.true);",
+              "pm.test('course percent updated', () => pm.expect(b.percent).to.be.above(Number(pm.collectionVariables.get('percentBefore'))));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18. Mark class - student -> 403",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/{{itemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "{{itemId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completed\": false\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19. Mark class - other teacher -> 403",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{otherTeacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/{{itemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "{{itemId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completed\": false\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20. Mark class - missing body field -> 400",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/{{itemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "{{itemId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 400', () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21. Mark class - unknown id -> 404",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/999999",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "999999"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completed\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22. Undo - mark not complete (admin) and restore",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/plan/items/{{itemId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "plan",
+            "items",
+            "{{itemId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"completed\": false\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('item is not completed', () => pm.expect(b.item.completed).to.be.false);",
+              "pm.test('completedAt cleared', () => pm.expect(b.item.completedAt).to.be.null);",
+              "pm.test('completedBy cleared', () => pm.expect(b.item.completedBy).to.be.null);",
+              "pm.test('percent back to where it started', () => pm.expect(b.coursePercent).to.eql(Number(pm.collectionVariables.get('percentBefore'))));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23. CRUD cleanup (ignore result)",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/{{crudId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "{{crudId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('204 if a leftover existed, 404 if not', () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "24. CREATE course",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{crudId}}\",\n  \"name\": \"Demo Course\",\n  \"gradeLevel\": \"Senior\",\n  \"teacher\": \"Dr John Anderson\",\n  \"teacherUsername\": \"janderson\",\n  \"color\": \"green\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('Location header points at the new course', () => pm.expect(pm.response.headers.get('Location')).to.include('/api/learning/courses/' + pm.collectionVariables.get('crudId')));",
+              "pm.test('id and name saved', () => { pm.expect(b.id).to.eql(pm.collectionVariables.get('crudId')); pm.expect(b.name).to.eql('Demo Course'); });",
+              "pm.test('percent and status start at defaults', () => { pm.expect(b.percent).to.eql(0); pm.expect(b.status).to.eql('not-started'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "25. CREATE duplicate course -> 409",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{crudId}}\",\n  \"name\": \"Demo Course\",\n  \"gradeLevel\": \"Senior\",\n  \"teacher\": \"Dr John Anderson\",\n  \"teacherUsername\": \"janderson\",\n  \"color\": \"green\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 409', () => pm.response.to.have.status(409));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "26. CREATE course without a name -> 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"no-name-course\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 400', () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "27. CREATE course as teacher -> 403",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{teacher}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "teacher"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{crudId}}\",\n  \"name\": \"Demo Course\",\n  \"gradeLevel\": \"Senior\",\n  \"teacher\": \"Dr John Anderson\",\n  \"teacherUsername\": \"janderson\",\n  \"color\": \"green\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "28. READ all courses (admin)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const rows = pm.response.json();",
+              "pm.test('includes the new course', () => pm.expect(rows.map(r => r.id)).to.include(pm.collectionVariables.get('crudId')));",
+              "pm.test('sorted by name', () => pm.expect(rows.map(r => r.name)).to.eql([...rows.map(r => r.name)].sort((a, b) => a.localeCompare(b))));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "29. READ all courses as student -> 403",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{student}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "student"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "30. READ one course",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/{{crudId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "{{crudId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "pm.test('is the requested course', () => pm.expect(pm.response.json().name).to.eql('Demo Course'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "31. UPDATE course",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/{{crudId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "{{crudId}}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Demo Course (renamed)\",\n  \"gradeLevel\": \"Junior\",\n  \"teacher\": \"Dr John Anderson\",\n  \"teacherUsername\": \"janderson\",\n  \"color\": \"red\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('fields updated', () => { pm.expect(b.name).to.eql('Demo Course (renamed)'); pm.expect(b.gradeLevel).to.eql('Junior'); pm.expect(b.color).to.eql('red'); });",
+              "pm.test('id unchanged', () => pm.expect(b.id).to.eql(pm.collectionVariables.get('crudId')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "32. UPDATE unknown course -> 404",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/no-such-course",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "no-such-course"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Demo Course (renamed)\",\n  \"gradeLevel\": \"Junior\",\n  \"teacher\": \"Dr John Anderson\",\n  \"teacherUsername\": \"janderson\",\n  \"color\": \"red\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "33. DELETE course",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/{{crudId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "{{crudId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "34. READ deleted course -> 404",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "{{admin}}"
+          },
+          {
+            "key": "X-Role",
+            "value": "admin"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/courses/{{crudId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "courses",
+            "{{crudId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('returns 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

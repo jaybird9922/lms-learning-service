@@ -1,0 +1,5 @@
+# Shared by every profile of learning-service.
+# Served at GET /learning-service/{profile}
+lms:
+  service-owner: Jay Bruhn Schraml
+  bounded-context: Course progress, lesson plans, learning overview

@@ -1,0 +1,18 @@
+# Build output
+target/
+*.jar
+*.class
+
+# Newman reports (regenerate with: newman run postman-collection.json -r cli,htmlextra)
+newman/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+
+# Artifacts left by the mounted filesystem when files are rewritten in place
+.fuse_hidden*

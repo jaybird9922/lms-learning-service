@@ -1,0 +1,20 @@
+# PROD profile for learning-service, served by the config service.
+# No default caller in prod: requests without X-User / X-Role get 401.
+lms:
+  environment-label: "PROD - served by config-service (Flyway schema only, no seed data, SQL logging off)"
+
+spring:
+  flyway:
+    # schema only: db/dev (seed data) is never loaded in prod
+    locations: classpath:db/migration
+    # a volume that ran dev first has the seed migration in its history; don't fail on it
+    ignore-migration-patterns: "*:missing"
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    edu.lms: INFO

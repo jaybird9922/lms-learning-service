@@ -1,0 +1,101 @@
+spring:
+  application:
+    name: learning-service          # gateway routes lb://learning-service here
+  config:
+    # Pulls learning-service-<profile>.yml from the config service (David's config-service, port 8888).
+    # 'optional:' so the service still boots if the config server is down;
+    # the local profile blocks below are the fallback.
+    import: optional:configserver:${CONFIG_URL:http://config-service:8888}
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/learningdb}
+    username: ${DB_USER:lms}
+    password: ${DB_PASSWORD:lms}
+  jpa:
+    open-in-view: false
+  flyway:
+    enabled: true
+    # Schema migrations: every profile. The dev profile adds db/dev (seed data).
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8105}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://discovery-service:8761/eureka}
+    # off by default so the service runs alone; compose turns it on
+    enabled: ${EUREKA_ENABLED:false}
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env
+
+lms:
+  enrollment:
+    # stub = use the lists below (enrollment-service not needed)
+    # rest = call enrollment-service GET /api/enrollment/state (set ENROLLMENT_MODE=rest)
+    mode: ${ENROLLMENT_MODE:stub}
+    url: ${ENROLLMENT_URL:http://enrollment-service:8104}
+    # Stand-in for enrollment-service while it isn't running: username -> enrolled course ids
+    stub:
+      student1: ap-precalc,ap-chemistry,ap-english-lit,ap-cs,ap-biology
+      slewis: ap-precalc,ap-calc-ab,ap-chemistry
+
+---
+# ---------- DEV (fallback; config-service overrides these) ----------
+spring:
+  config:
+    activate:
+      on-profile: dev
+  flyway:
+    # V1 schema + V2 seed data
+    locations: classpath:db/migration,classpath:db/dev
+  jpa:
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that the entities match it
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+lms:
+  environment-label: DEV - local fallback (config-service not reachable)
+  auth:
+    # Dev convenience: with no X-User / X-Role headers you are admin1 (sees everything).
+    # Prod has no default, so prod answers 401 unless both headers are sent.
+    default-username: admin1
+    default-role: admin
+
+logging:
+  level:
+    edu.lms: DEBUG
+
+---
+# ---------- PROD (fallback; config-service overrides these) ----------
+spring:
+  config:
+    activate:
+      on-profile: prod
+  flyway:
+    # schema only: db/dev is never loaded in prod
+    locations: classpath:db/migration
+    # a volume that ran dev first has the seed migration in its history; don't fail on it
+    ignore-migration-patterns: "*:missing"
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+lms:
+  environment-label: PROD - local fallback (config-service not reachable)
+
+logging:
+  level:
+    root: WARN
+    edu.lms: INFO
